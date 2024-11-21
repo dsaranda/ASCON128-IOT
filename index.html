@@ -1,0 +1,141 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>MONITOR ALERTAS!</title>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.15.4/css/all.min.css">
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            padding: 20px;
+            text-align: center;
+        }
+        h1 {
+            margin-bottom: 40px;
+        }
+        .status, .alert, .encrypted-message, .decrypted-message {
+            margin-top: 20px;
+            padding: 15px;
+            border-radius: 8px;
+            box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+            max-width: 800px;  /* Aumenté el ancho máximo para que las cajas sean más anchas */
+            width: 100%;  /* Se asegura que las cajas se adapten al 100% del contenedor */
+            margin-left: auto;
+            margin-right: auto;
+        }
+        .status {
+            font-size: 20px;
+            border: 1px solid #ccc;
+        }
+        .button-container {
+            margin-top: 30px;
+        }
+        .btn {
+            padding: 10px 20px;
+            margin: 10px;
+            font-size: 16px;
+            border: none;
+            cursor: pointer;
+            transition: background-color 0.3s;
+            border-radius: 5px;
+        }
+        .btn.on { background-color: #4CAF50; color: white; }
+        .btn.off { background-color: #f44336; color: white; }
+        .alert {
+            background-color: #ffcc00;
+            border: 1px solid #ff9900;
+        }
+        .encrypted-message {
+            background-color: #d1ecf1;
+            border: 1px solid #bee5eb;
+        }
+        .decrypted-message {
+            background-color: #d4edda;
+            border: 1px solid #c3e6cb;
+        }
+        p {
+            margin: 10px 0;
+            font-size: 16px;
+            word-wrap: break-word;  /* Asegura que los textos largos se ajusten dentro de la caja */
+        }
+    </style>
+</head>
+<body>
+    <h1>MONITOR ALERTAS!</h1>
+
+    <!-- Estado de la luz -->
+    <div class="status">
+        <h2>Estado de la luz</h2>
+        <p id="lightStatus">{{ light_status.capitalize() }}</p>
+    </div>
+
+    <!-- Contenedor de los botones -->
+    <div class="button-container">
+        <button class="btn on" id="turnOn" onclick="turnOnLED()">Activar Sensor</button>
+        <button class="btn off" id="turnOff" onclick="turnOffLED()">Desactivar Sensor</button>
+    </div>
+
+    <!-- Mensaje de alerta -->
+    <div class="alert">
+        <h3>Mensaje de alerta</h3>
+        <p id="alertMessage">{{ alert_message or 'No hay mensaje de alerta' }}</p>
+    </div>
+
+    <!-- Mensaje encriptado -->
+    <div class="encrypted-message">
+        <h3>Mensaje Encriptado</h3>
+        <p id="encryptedMessage">{{ encrypted_message or 'No hay mensaje encriptado' }}</p>
+    </div>
+
+    <!-- Mensaje desencriptado -->
+    <div class="decrypted-message">
+        <h3>Mensaje Desencriptado</h3>
+        <p id="decryptedMessage">{{ decrypted_message or 'No hay mensaje desencriptado' }}</p>
+    </div>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.4.0/socket.io.min.js"></script>
+    <script>
+        // Conexión a SocketIO
+        var socket = io.connect('http://' + window.location.hostname + ':5000');  // Asegúrate de que el puerto es correcto
+
+        // Escuchar los eventos enviados por el servidor
+        socket.on('alert', function(data) {
+            document.getElementById('alertMessage').innerText = data.message || 'No hay mensaje de alerta';
+        });
+
+        socket.on('encrypted_message', function(data) {
+            document.getElementById('encryptedMessage').innerText = data.message || 'No hay mensaje encriptado';
+        });
+
+        socket.on('decrypted_message', function(data) {
+            document.getElementById('decryptedMessage').innerText = data.message || 'No hay mensaje desencriptado';
+        });
+
+        // Funciones para manejar los botones
+        function turnOnLED() {
+            fetch('/turn_on_led', { method: 'POST' })
+                .then(response => response.json())
+                .then(data => {
+                    document.getElementById('lightStatus').innerText = 'Encendida';
+                });
+        }
+
+        function turnOffLED() {
+            fetch('/turn_off_led', { method: 'POST' })
+                .then(response => response.json())
+                .then(data => {
+                    document.getElementById('lightStatus').innerText = 'Apagada';
+                    resetMessages();  // Reinicia los mensajes cuando se apaga la luz
+                });
+        }
+
+        // Función para resetear los mensajes
+        function resetMessages() {
+            document.getElementById('alertMessage').innerText = 'No hay mensaje de alerta';
+            document.getElementById('encryptedMessage').innerText = 'No hay mensaje encriptado';
+            document.getElementById('decryptedMessage').innerText = 'No hay mensaje desencriptado';
+        }
+    </script>
+</body>
+</html>
