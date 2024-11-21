@@ -1,4 +1,6 @@
 Criptografía Ligera en Dispositivos IoT 🌐🔒
+
+
 Este proyecto demuestra la implementación del algoritmo criptográfico ASCON-128, diseñado para proporcionar seguridad eficiente en dispositivos IoT con recursos limitados. La solución emplea un microcontrolador Wemos D1 Mini (ESP8266) para encriptar mensajes que son enviados a una Raspberry Pi 3 B mediante el protocolo MQTT.
 
 🚀 Características principales
