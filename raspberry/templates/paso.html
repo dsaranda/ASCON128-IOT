@@ -1,0 +1,359 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ASCON-128 · Paso a paso</title>
+<style>
+  :root {
+    --bg: #0b0f14; --panel: #121821; --panel-2: #18202b; --line: #243040;
+    --text: #e6edf3; --muted: #8b98a8;
+    --ok: #2ecc71; --ok-bg: rgba(46,204,113,.13);
+    --warn: #f5a623; --warn-bg: rgba(245,166,35,.13);
+    --crit: #ff4d4f; --crit-bg: rgba(255,77,79,.14);
+    --info: #3aa0ff; --info-bg: rgba(58,160,255,.13);
+    --nonce: #b48cff; --ct: #3aa0ff; --tag: #2ecc71; --key: #f5a623; --iv: #8b98a8; --txt: #e6edf3;
+    --mono: ui-monospace, "SFMono-Regular", Menlo, Consolas, "Liberation Mono", monospace;
+    --sans: system-ui, -apple-system, "Segoe UI", Roboto, Ubuntu, sans-serif;
+    --fs: clamp(15px, 1.25vw, 28px);
+  }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; }
+  body { margin: 0; background: var(--bg); color: var(--text); font-family: var(--sans); font-size: var(--fs); line-height: 1.45; }
+  .app { height: 100vh; display: grid; grid-template-rows: auto 1fr auto; }
+
+  header { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: .8em 1.6em; border-bottom: 1px solid var(--line); background: var(--panel); }
+  header h1 { margin: 0; font-size: 1.15em; letter-spacing: .3px; }
+  header h1 span { color: var(--muted); font-weight: 400; }
+  .src { font-size: .8em; color: var(--muted); display: flex; gap: .8em; align-items: center; }
+  .pill { display: inline-flex; align-items: center; gap: .45em; padding: .25em .8em; border-radius: 999px; font-size: .78em; font-weight: 700; letter-spacing: .5px; text-transform: uppercase; border: 1px solid currentColor; }
+  .pill.ok { color: var(--ok); background: var(--ok-bg); } .pill.crit { color: var(--crit); background: var(--crit-bg); }
+  .pill.warn { color: var(--warn); background: var(--warn-bg); } .pill.info { color: var(--info); background: var(--info-bg); }
+  .pill.muted { color: var(--muted); }
+
+  main { padding: 1.4em 2.2em 1em; overflow: hidden; display: grid; grid-template-rows: auto auto 1fr; gap: .9em; min-height: 0; }
+  .kicker { color: var(--info); font-weight: 700; font-size: .8em; letter-spacing: 1.5px; text-transform: uppercase; }
+  .title { font-size: 2.1em; font-weight: 800; margin: .1em 0 0; line-height: 1.15; }
+  .idea { font-size: 1.25em; color: #c9d4df; max-width: 70em; margin: 0; }
+  .idea b { color: var(--text); }
+  .stage { min-height: 0; overflow: auto; display: grid; gap: 1em; align-content: start; }
+  .tech { border-left: 3px solid var(--info); background: var(--panel); padding: .7em 1em; border-radius: 0 8px 8px 0; font-size: .85em; color: #b8c4d0; }
+  .tech b { color: var(--info); font-weight: 700; }
+  .tech code, .mono { font-family: var(--mono); }
+
+  footer { display: flex; align-items: center; justify-content: space-between; gap: 1em; padding: .8em 1.6em; border-top: 1px solid var(--line); background: var(--panel); }
+  .dots { display: flex; gap: .45em; flex-wrap: wrap; }
+  .dot { width: .75em; height: .75em; border-radius: 50%; background: var(--line); cursor: pointer; border: 0; padding: 0; }
+  .dot.on { background: var(--info); } .dot.done { background: #3a5a7a; }
+  .nav { display: flex; gap: .6em; align-items: center; }
+  button { font: inherit; font-weight: 700; font-size: .9em; padding: .55em 1.2em; border-radius: 8px; cursor: pointer; background: var(--panel-2); color: var(--text); border: 1px solid var(--line); }
+  button:hover { border-color: var(--muted); }
+  button:focus-visible { outline: 2px solid var(--info); outline-offset: 2px; }
+  button.primary { background: var(--info); border-color: var(--info); color: #041018; }
+  .count { color: var(--muted); font-size: .85em; min-width: 5.5em; text-align: center; font-variant-numeric: tabular-nums; }
+
+  /* Bloques visuales */
+  .hexline { font-family: var(--mono); font-size: 1.25em; word-break: break-all; line-height: 1.7; background: #070a0e; border: 1px solid var(--line); border-radius: 10px; padding: .8em 1em; }
+  .c-n { color: var(--nonce); } .c-c { color: var(--ct); } .c-t { color: var(--tag); } .c-k { color: var(--key); } .c-iv { color: var(--iv); }
+  .flip { background: var(--crit); color: #fff; border-radius: 3px; }
+  .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(14em, 1fr)); gap: .9em; }
+  .card { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: .9em 1.1em; }
+  .card h3 { margin: 0 0 .3em; font-size: 1.05em; } .card p { margin: 0; color: #b8c4d0; font-size: .92em; }
+  .card .big { font-family: var(--mono); font-size: 1.5em; font-weight: 700; margin: .1em 0 .2em; }
+  .card.n { border-top: 3px solid var(--nonce); } .card.c { border-top: 3px solid var(--ct); } .card.t { border-top: 3px solid var(--tag); }
+  .card.k { border-top: 3px solid var(--key); } .card.i { border-top: 3px solid var(--iv); }
+
+  .state { display: grid; grid-template-columns: auto 1fr auto; gap: .35em 1em; align-items: center; background: #070a0e; border: 1px solid var(--line); border-radius: 10px; padding: .9em 1.2em; }
+  .state .lbl { font-family: var(--mono); color: var(--muted); font-size: .9em; }
+  .state .word { font-family: var(--mono); font-size: 1.55em; letter-spacing: .08em; }
+  .state .tagw { font-size: .78em; color: var(--muted); }
+  .chg { color: var(--warn); } .same { color: #5d6b7c; }
+
+  .layers { display: flex; gap: .5em; flex-wrap: wrap; }
+  .layer { padding: .45em .9em; border-radius: 8px; border: 1px solid var(--line); color: var(--muted); font-weight: 700; font-size: .9em; }
+  .layer.on { border-color: var(--warn); color: var(--warn); background: var(--warn-bg); }
+  .layer.done { color: var(--text); }
+
+  canvas#heat { width: 100%; background: #070a0e; border: 1px solid var(--line); border-radius: 10px; }
+  .heat-legend { display: flex; justify-content: space-between; font-size: .8em; color: var(--muted); }
+
+  table.blk { border-collapse: collapse; width: 100%; font-family: var(--mono); font-size: 1.05em; }
+  table.blk th { font-family: var(--sans); font-size: .72em; color: var(--muted); text-transform: uppercase; letter-spacing: 1px; text-align: left; padding: .3em .6em; }
+  table.blk td { padding: .45em .6em; border-top: 1px solid var(--line); white-space: nowrap; }
+  table.blk tr.new td { background: var(--info-bg); }
+  table.blk tr.hide { visibility: hidden; }
+  table.blk .op { color: var(--muted); font-family: var(--sans); }
+  table.blk .asc { color: var(--text); font-weight: 700; background: var(--ok-bg); border-radius: 4px; padding: 0 .3em; white-space: pre; }
+  .strip { font-family: var(--mono); font-size: 2.1em; font-weight: 800; letter-spacing: .06em; background: #070a0e; border: 1px solid var(--line); border-radius: 10px; padding: .4em .7em; min-height: 1.9em; white-space: pre-wrap; }
+  .strip .pend { color: #2c3a4a; }
+  .strip .gar { color: var(--crit); text-decoration: line-through; }
+
+  .cmp { display: grid; grid-template-columns: auto 1fr; gap: .5em 1em; align-items: center; }
+  .cmp .lbl { color: var(--muted); font-size: .9em; }
+  .bytes { display: flex; gap: .3em; flex-wrap: wrap; }
+  .byte { font-family: var(--mono); font-size: 1.25em; padding: .15em .35em; border-radius: 5px; border: 1px solid var(--line); background: #070a0e; }
+  .byte.m { border-color: var(--ok); color: var(--ok); } .byte.x { border-color: var(--crit); color: var(--crit); }
+  .verdict { font-size: 1.9em; font-weight: 800; padding: .5em .8em; border-radius: 10px; text-align: center; }
+  .verdict.ok { color: var(--ok); background: var(--ok-bg); border: 1px solid var(--ok); }
+  .verdict.bad { color: var(--crit); background: var(--crit-bg); border: 1px solid var(--crit); }
+
+  .flow { display: grid; grid-template-columns: 1fr auto 1fr auto 1fr auto 1fr; align-items: center; gap: .6em; }
+  .fnode { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: .8em; text-align: center; }
+  .fnode b { display: block; font-size: 1.05em; } .fnode span { color: var(--muted); font-size: .85em; }
+  .arrow { color: var(--muted); font-size: 1.6em; }
+  .two { display: grid; grid-template-columns: 1fr 1fr; gap: 1em; }
+  .toast { position: fixed; right: 1.4em; bottom: 5em; background: var(--panel-2); border: 1px solid var(--info); border-radius: 10px; padding: .8em 1em; display: none; gap: .8em; align-items: center; box-shadow: 0 8px 30px rgba(0,0,0,.5); }
+  .toast.show { display: flex; }
+  .err { color: var(--warn); }
+
+  @media (max-width: 900px) {
+    main { padding: 1em; } .title { font-size: 1.6em; } .two, .flow { grid-template-columns: 1fr; } .arrow { transform: rotate(90deg); justify-self: center; }
+    .state .word { font-size: 1.05em; } .strip { font-size: 1.3em; } table.blk { font-size: .8em; }
+  }
+</style>
+</head>
+<body>
+<div class="app">
+  <header>
+    <h1>ASCON-128 <span>· Cómo se cifra y descifra una alerta, paso a paso</span></h1>
+    <div class="src"><span id="srcPill" class="pill muted">Cargando</span><span id="srcTxt"></span><button id="reload" title="Tecla R">Usar último mensaje</button></div>
+  </header>
+  <main>
+    <div><div class="kicker" id="kicker"></div><h2 class="title" id="title"></h2></div>
+    <p class="idea" id="idea"></p>
+    <div class="stage" id="stage"></div>
+  </main>
+  <footer>
+    <div class="dots" id="dots"></div>
+    <div class="nav">
+      <button id="prev" title="Flecha izquierda">◀ Anterior</button>
+      <span class="count" id="count"></span>
+      <button id="next" class="primary" title="Flecha derecha / espacio">Siguiente ▶</button>
+    </div>
+  </footer>
+</div>
+<div class="toast" id="toast"><span>Llegó una alerta nueva del nodo de campo</span><button class="primary" id="toastBtn">Cargarla</button></div>
+
+<script src="{{ url_for('static', filename='socket.io.min.js') }}"></script>
+<script>
+const $ = (id) => document.getElementById(id);
+let T = null, TA = null;         // traza original y traza del mensaje alterado
+let step = 0, sub = 0;
+const esc = (s) => { const d = document.createElement("div"); d.textContent = s; return d.innerHTML; };
+const printable = (s) => [...s].map(ch => { const c = ch.charCodeAt(0); return (c >= 32 && c < 127) ? ch : "·"; }).join("");
+
+function diffWord(prev, cur) {
+  return [...cur].map((ch, i) => `<span class="${prev && prev[i] === ch ? "same" : "chg"}">${ch}</span>`).join("");
+}
+function stateGrid(S, prev, labels, colors) {
+  return `<div class="state">${S.map((w, i) => `
+    <span class="lbl">S${i}</span>
+    <span class="word ${colors ? colors[i] : ""}">${prev ? diffWord(prev[i], w) : w}</span>
+    <span class="tagw">${labels ? labels[i] : ""}</span>`).join("")}</div>`;
+}
+function hexColored(t, flipPos) {
+  let ct = t.ct;
+  if (flipPos != null) ct = ct.slice(0, flipPos) + `<span class="flip">${ct[flipPos]}</span>` + ct.slice(flipPos + 1);
+  return `<div class="hexline"><span class="c-n">${t.nonce}</span><span class="c-c">${ct}</span><span class="c-t">${t.tag}</span></div>`;
+}
+function bytesRow(hex, other) {
+  const a = hex.match(/../g), b = other ? other.match(/../g) : null;
+  return `<div class="bytes">${a.map((x, i) => `<span class="byte ${b ? (x === b[i] ? "m" : "x") : ""}">${x}</span>`).join("")}</div>`;
+}
+
+// ---------- Pasos ----------
+const STEPS = [
+  { k: "El escenario", t: "¿Qué pasa cuando el sensor detecta movimiento?", subs: 1,
+    idea: () => `El nodo de campo <b>cifra la alerta</b> antes de enviarla. Por la red solo viajan datos ilegibles, y el servidor <b>verifica y descifra</b>. Vamos a seguir un mensaje real, capturado del Wemos.`,
+    view: () => `
+      <div class="flow">
+        <div class="fnode"><b>Sensor Sharp IR</b><span>Detecta movimiento</span></div><div class="arrow">→</div>
+        <div class="fnode" style="border-color:var(--key)"><b>ESP8266</b><span>Cifra con Ascon-128 (C)</span></div><div class="arrow">→</div>
+        <div class="fnode"><b>Red WiFi + MQTT</b><span>Canal observable</span></div><div class="arrow">→</div>
+        <div class="fnode" style="border-color:var(--ok)"><b>Raspberry Pi</b><span>Verifica y descifra (Python)</span></div>
+      </div>
+      <div class="tech"><b>Detalle técnico:</b> Ascon-128 es un cifrado autenticado (AEAD). En una sola pasada garantiza <b>confidencialidad</b> (nadie lee el mensaje) e <b>integridad y autenticidad</b> (nadie lo modifica sin que se detecte). Clave de 128 bits, nonce de 128 bits, tag de 128 bits.</div>` },
+
+  { k: "1 · La vista del atacante", t: "Esto es todo lo que viaja por la red", subs: 1,
+    idea: () => `Cualquiera conectado a la red puede capturar esto. Parece ruido, y sin la clave <b>es</b> ruido: no se puede leer ni modificar sin que se note.`,
+    view: () => `${hexColored(T)}
+      <div class="cards">
+        <div class="card n"><h3>Nonce · 16 bytes</h3><div class="big c-n">Número único</div><p>Se genera al azar para cada mensaje. No es secreto, pero <b>nunca debe repetirse</b> con la misma clave.</p></div>
+        <div class="card c"><h3>Ciphertext · ${T.largo} bytes</h3><div class="big c-c">El mensaje cifrado</div><p>Mismo largo que el texto original. Sin padding visible: ASCON cifra como un flujo.</p></div>
+        <div class="card t"><h3>Tag · 16 bytes</h3><div class="big c-t">Sello de autenticidad</div><p>Resume clave, nonce y mensaje. Si se altera un solo bit, el sello deja de coincidir.</p></div>
+      </div>` },
+
+  { k: "2 · Los ingredientes", t: "El estado: 320 bits que se van a mezclar", subs: 1,
+    idea: () => `ASCON trabaja sobre un <b>estado de 320 bits</b> (5 palabras de 64). Arranca con una constante de configuración, la <b>clave secreta</b> y el <b>nonce</b>.`,
+    view: () => `${stateGrid(T.estado_inicial, null,
+        ["IV · parámetros del algoritmo", "Clave (1ª mitad) · secreta", "Clave (2ª mitad) · secreta", "Nonce (1ª mitad) · público", "Nonce (2ª mitad) · público"],
+        ["c-iv", "c-k", "c-k", "c-n", "c-n"])}
+      <div class="tech"><b>Detalle técnico:</b> el IV <code class="mono">${T.iv}</code> codifica los parámetros de Ascon-128: clave de 128 bits (<code>80</code>), bloque de 64 bits (<code>40</code>), 12 rondas de inicialización (<code>0C</code>) y 6 rondas por bloque (<code>06</code>). La clave de este laboratorio es fija: <code class="mono">${T.clave}</code>.</div>` },
+
+  { k: "3 · La licuadora", t: "Una ronda de la permutación, capa por capa", subs: 4,
+    idea: () => [
+      `El corazón de ASCON es una <b>permutación</b>: una función que mezcla los 320 bits. Cada ronda tiene tres capas. Este es el estado de entrada:`,
+      `<b>Capa 1: constante de ronda.</b> Se suma una constante distinta en cada ronda, para que ninguna ronda sea igual a otra. Cambia solo el final de S2.`,
+      `<b>Capa 2: sustitución (S-box).</b> Mezcla los 5 bits de cada columna con una tabla no lineal. Es lo que hace imposible "despejar" la ecuación.`,
+      `<b>Capa 3: difusión lineal.</b> Cada palabra se combina con copias rotadas de sí misma, así cada bit influye en muchos otros.`][sub],
+    view: () => {
+      const L = ["entrada", "constante", "sbox", "lineal"], names = ["Entrada", "+ Constante", "S-box", "Difusión lineal"];
+      const cur = T.ronda1[L[sub]], prev = sub ? T.ronda1[L[sub - 1]] : null;
+      return `<div class="layers">${names.map((n, i) => `<span class="layer ${i === sub ? "on" : i < sub ? "done" : ""}">${n}</span>`).join("")}</div>
+        ${stateGrid(cur, prev)}
+        <div class="tech"><b>Detalle técnico:</b> ${[
+          "en <span class='chg'>naranja</span> se marcan los dígitos que cambian respecto del paso anterior. Todo el algoritmo usa solo XOR, AND, NOT y rotaciones: sin tablas en memoria, por eso es rápido en microcontroladores y resistente a ataques de tiempo.",
+          `constante de la ronda 0: <code>0x${T.constante_r0}</code>, sumada (XOR) a S2.`,
+          "S-box de 5 bits aplicada en paralelo a las 64 columnas del estado (implementación bitsliced con XOR, AND y NOT).",
+          "rotaciones por palabra: S0 (19, 28) · S1 (61, 39) · S2 (1, 6) · S3 (10, 17) · S4 (7, 41). Si comparás con la entrada, ya casi no queda nada del estado original."][sub]}</div>`;
+    } },
+
+  { k: "4 · Efecto avalancha", t: "Después de 12 rondas no queda ningún patrón", subs: 1,
+    idea: () => `Cada fila es el estado completo (320 bits) después de cada ronda. Arriba se ve la estructura de la clave y el nonce; <b>a las pocas rondas ya es indistinguible del azar</b>.`,
+    view: () => `<canvas id="heat"></canvas>
+      <div class="heat-legend"><span>▲ Estado inicial (IV · clave · nonce)</span><span><span style="color:var(--info)">■</span> bit en 1 &nbsp; <span style="color:#1c2633">■</span> bit en 0 &nbsp; <span style="color:var(--key)">■</span> estado inicial</span><span>Ronda 12 ▼</span></div>
+      <div class="tech"><b>Detalle técnico:</b> tras las 12 rondas se vuelve a mezclar la clave (XOR en S3 y S4). Como no hay datos asociados, se invierte un bit de S4 (separación de dominio). Recién ahí empieza el descifrado.</div>`,
+    after: drawHeat },
+
+  { k: "5 · Descifrado", t: "Bloque por bloque, aparece el mensaje", subs: () => T.bloques.length + 1,
+    idea: () => sub === 0
+      ? `El estado genera una <b>máscara</b> de 8 bytes. Aplicando XOR entre la máscara y el cifrado se recupera el texto. Después, el cifrado vuelve a mezclarse en el estado (6 rondas) para producir la próxima máscara.`
+      : `Bloque ${Math.min(sub, T.bloques.length)} de ${T.bloques.length}: <b>cifrado ⊕ máscara = texto</b>.`,
+    view: () => {
+      const rows = T.bloques.map((b, i) => `<tr class="${i >= sub ? "hide" : (i === sub - 1 ? "new" : "")}">
+        <td>${b.i}</td><td class="c-c">${b.c}</td><td class="op">⊕</td><td class="c-k">${b.s0}</td><td class="op">=</td><td>${b.p}</td><td class="op">→</td><td><span class="asc">${esc(b.txt)}</span></td></tr>`).join("");
+      const strip = T.bloques.map((b, i) => i < sub ? esc(b.txt) : `<span class="pend">${"·".repeat(b.largo)}</span>`).join("");
+      return `<div class="strip">${strip}</div>
+        <table class="blk"><tr><th>#</th><th>Cifrado (lo que viajó)</th><th></th><th>Máscara (estado S0)</th><th></th><th>Texto (hex)</th><th></th><th>Texto</th></tr>${rows}</table>
+        <div class="tech"><b>Detalle técnico:</b> Ascon-128 procesa bloques de 64 bits (la "tasa"); los otros 256 bits del estado (la "capacidad") nunca salen y son los que dan la seguridad. El último bloque tiene ${T.bloques[T.bloques.length - 1].largo} bytes y se completa con padding <code>0x80</code>.</div>`;
+    } },
+
+  { k: "6 · El sello", t: "Antes de entregar el mensaje, se verifica el tag", subs: 2,
+    idea: () => sub === 0
+      ? `El servidor vuelve a mezclar la clave, aplica 12 rondas y <b>calcula el tag por su cuenta</b>. Solo si coincide con el recibido, el mensaje es auténtico.`
+      : (T.ok ? `Los 16 bytes coinciden: el mensaje viene de alguien que tiene la clave y <b>no fue modificado</b>.` : `El tag no coincide: el mensaje se descarta.`),
+    view: () => `<div class="cmp">
+        <span class="lbl">Tag recibido</span>${bytesRow(T.tag)}
+        <span class="lbl">Tag calculado</span>${sub ? bytesRow(T.tag_calc, T.tag) : `<div class="bytes">${"<span class='byte'>··</span>".repeat(16)}</div>`}
+      </div>
+      ${sub ? `<div class="verdict ${T.ok ? "ok" : "bad"}">${T.ok ? "✔ AUTÉNTICO · se entrega: “" + esc(T.texto) + "”" : "✘ RECHAZADO"}</div>` : ""}
+      <div class="tech"><b>Detalle técnico:</b> finalización: XOR de la clave en S1 y S2, 12 rondas y tag = (S3, S4) ⊕ clave. La comparación usa los 128 bits completos: falsificar un tag válido sin la clave tiene una probabilidad de 1 en 2<sup>128</sup>.</div>` },
+
+  { k: "7 · Ataque", t: "¿Y si alguien altera un solo bit en la red?", subs: 2,
+    idea: () => sub === 0
+      ? `Cambiamos <b>un único bit</b> del cifrado, como haría un atacante en el medio. El resto del mensaje es idéntico.`
+      : `El descifrado produce basura desde ese punto, y el tag cambia en <b>${TA ? TA.bits_distintos_tag : "?"} de 128 bits</b>. El mensaje se rechaza y el texto <b>nunca se entrega</b>.`,
+    view: () => {
+      if (!TA) return `<p class="err">No se pudo calcular el mensaje alterado.</p>`;
+      if (sub === 0) return `<div class="kicker" style="color:var(--muted)">Original</div>${hexColored(T)}
+        <div class="kicker" style="color:var(--crit)">Alterado (1 bit)</div>${hexColored(TA, 4)}`;
+      const gar = [...TA.texto].map((ch, i) => ch === T.texto[i] ? esc(ch) : `<span class="gar">${esc(printable(ch))}</span>`).join("");
+      return `<div class="strip">${gar}</div>
+        <div class="cmp"><span class="lbl">Tag recibido</span>${bytesRow(TA.tag)}<span class="lbl">Tag calculado</span>${bytesRow(TA.tag_calc, TA.tag)}</div>
+        <div class="verdict bad">✘ RECHAZADO · ${TA.bits_distintos_tag}/128 bits distintos</div>
+        <div class="tech"><b>Detalle técnico:</b> en AEAD el texto descifrado se descarta si el tag falla; la aplicación nunca lo ve. Por eso un atacante no puede ni leer ni falsificar alertas, aunque controle la red.</div>`;
+    } },
+
+  { k: "8 · Verificación cruzada", t: "Dos implementaciones distintas, el mismo resultado", subs: 1,
+    idea: () => `El Wemos cifró en <b>C</b> (ascon-suite). La Raspberry vuelve a cifrar el texto en <b>Python</b> (implementación de los autores) con el mismo nonce: el resultado es <b>idéntico byte a byte</b>.`,
+    view: () => T.recifrado ? `
+      <div class="kicker" style="color:var(--key)">ESP8266 · C</div>${hexColored(T)}
+      <div class="kicker" style="color:var(--ok)">Raspberry Pi · Python</div>
+      <div class="hexline"><span class="c-n">${T.recifrado.slice(0, 32)}</span><span class="c-c">${T.recifrado.slice(32, -32)}</span><span class="c-t">${T.recifrado.slice(-32)}</span></div>
+      <div class="verdict ${T.recifrado_igual ? "ok" : "bad"}">${T.recifrado_igual ? "✔ Idénticos" : "✘ Distintos"}</div>` : `<p class="err">El mensaje original no es válido, no se puede comparar.</p>` },
+
+  { k: "9 · Cierre", t: "¿Por qué ASCON para IoT?", subs: 1,
+    idea: () => `Todo lo que vimos corre en un microcontrolador de 80 MHz con 80 KB de RAM.`,
+    view: () => `<div class="cards">
+        <div class="card i"><h3>Liviano</h3><p>Estado de solo 320 bits y operaciones simples (XOR, AND, NOT, rotaciones). Sin tablas en memoria.</p></div>
+        <div class="card t"><h3>Todo en uno</h3><p>Una sola primitiva da cifrado, autenticación y hash. Menos código, menos superficie de ataque.</p></div>
+        <div class="card c"><h3>Estándar</h3><p>Ganador del concurso de criptografía ligera del NIST y estandarizado en SP 800-232 (2025). Esta demo usa Ascon-128 v1.2, la versión del concurso.</p></div>
+        <div class="card k"><h3>Y lo cuántico</h3><p>Shor rompe RSA y ECC, no el cifrado simétrico. Grover reduce a la mitad la seguridad efectiva de la clave; por eso existió la variante Ascon-80pq, con clave de 160 bits.</p></div>
+      </div>` },
+];
+
+const subsOf = (s) => typeof s.subs === "function" ? s.subs() : s.subs;
+
+function render() {
+  if (!T) return;
+  const s = STEPS[step];
+  $("kicker").textContent = s.k;
+  $("title").textContent = s.t;
+  $("idea").innerHTML = s.idea();
+  $("stage").innerHTML = s.view();
+  if (s.after) requestAnimationFrame(s.after);
+  $("count").textContent = `${step + 1} / ${STEPS.length}`;
+  $("dots").innerHTML = STEPS.map((_, i) => `<button class="dot ${i === step ? "on" : i < step ? "done" : ""}" data-i="${i}" aria-label="Paso ${i + 1}"></button>`).join("");
+  $("prev").disabled = step === 0 && sub === 0;
+  $("next").disabled = step === STEPS.length - 1 && sub === subsOf(s) - 1;
+}
+function next() {
+  const n = subsOf(STEPS[step]);
+  if (sub < n - 1) sub++; else if (step < STEPS.length - 1) { step++; sub = 0; }
+  render();
+}
+function prev() {
+  if (sub > 0) sub--; else if (step > 0) { step--; sub = subsOf(STEPS[step]) - 1; }
+  render();
+}
+function go(i) { step = i; sub = 0; render(); }
+
+function drawHeat() {
+  const c = $("heat"); if (!c) return;
+  const rows = [T.estado_inicial, ...T.evolucion];
+  const W = c.clientWidth, cell = W / 320, H = Math.round(cell * 3.6 * rows.length);
+  const dpr = window.devicePixelRatio || 1;
+  c.width = W * dpr; c.height = H * dpr; c.style.height = H + "px";
+  const g = c.getContext("2d"); g.scale(dpr, dpr);
+  const rh = H / rows.length, css = getComputedStyle(document.documentElement);
+  const on = css.getPropertyValue("--info").trim(), off = "#0f1620";
+  rows.forEach((S, r) => {
+    const bits = S.map(w => BigInt("0x" + w).toString(2).padStart(64, "0")).join("");
+    for (let i = 0; i < 320; i++) {
+      g.fillStyle = bits[i] === "1" ? (r === 0 ? css.getPropertyValue("--key").trim() : on) : off;
+      g.fillRect(i * cell, r * rh, Math.max(cell - .5, .5), rh - 1);
+    }
+  });
+}
+
+async function cargar(fuente = "ultimo") {
+  try {
+    const [a, b] = await Promise.all([
+      fetch(`/api/traza?fuente=${fuente}`).then(r => r.json()),
+      fetch(`/api/traza?fuente=${fuente}&alterar=1`).then(r => r.json()),
+    ]);
+    if (a.error) throw new Error(a.error);
+    T = a; TA = b.error ? null : b;
+    const w = T.origen === "wemos";
+    $("srcPill").className = "pill " + (w ? "ok" : "warn");
+    $("srcPill").textContent = w ? "Mensaje real del Wemos" : "Mensaje de demostración";
+    $("srcTxt").textContent = w ? `capturado ${T.ts || ""}` : "todavía no llegó ninguna alerta";
+    if (sub >= subsOf(STEPS[step])) sub = 0;
+    render();
+  } catch (e) {
+    $("stage").innerHTML = `<p class="err">No se pudo cargar la traza: ${esc(e.message)}</p>`;
+  }
+}
+
+$("next").onclick = next; $("prev").onclick = prev;
+$("dots").onclick = (e) => { if (e.target.dataset.i) go(+e.target.dataset.i); };
+$("reload").onclick = () => cargar();
+$("toastBtn").onclick = () => { $("toast").classList.remove("show"); cargar(); };
+document.addEventListener("keydown", (e) => {
+  if (["ArrowRight", "PageDown", " ", "Enter"].includes(e.key)) { e.preventDefault(); next(); }
+  else if (["ArrowLeft", "PageUp", "Backspace"].includes(e.key)) { e.preventDefault(); prev(); }
+  else if (e.key === "Home") go(0);
+  else if (e.key === "r" || e.key === "R") cargar();
+  else if (e.key === "f" || e.key === "F") document.documentElement.requestFullscreen?.();
+});
+window.addEventListener("resize", () => { if (STEPS[step].after) drawHeat(); });
+
+try {
+  const socket = io();
+  socket.on("evento", (ev) => { if (ev.tipo === "cifrado") $("toast").classList.add("show"); });
+} catch (e) {}
+
+cargar();
+</script>
+</body>
+</html>

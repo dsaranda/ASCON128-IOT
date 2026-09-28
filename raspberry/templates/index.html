@@ -1,0 +1,403 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ER-07 · Panel de supervisión</title>
+<style>
+  :root {
+    --bg: #0b0f14;
+    --panel: #121821;
+    --panel-2: #18202b;
+    --line: #243040;
+    --text: #e6edf3;
+    --muted: #8b98a8;
+    --ok: #2ecc71;
+    --ok-bg: rgba(46, 204, 113, .12);
+    --warn: #f5a623;
+    --warn-bg: rgba(245, 166, 35, .12);
+    --crit: #ff4d4f;
+    --crit-bg: rgba(255, 77, 79, .14);
+    --info: #3aa0ff;
+    --info-bg: rgba(58, 160, 255, .12);
+    --nonce: #b48cff;
+    --ct: #3aa0ff;
+    --tag: #2ecc71;
+    --mono: ui-monospace, "SFMono-Regular", Menlo, Consolas, "Liberation Mono", monospace;
+    --sans: system-ui, -apple-system, "Segoe UI", Roboto, Ubuntu, sans-serif;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--text);
+    font-family: var(--sans); font-size: 15px; line-height: 1.45;
+  }
+  .wrap { max-width: 1400px; margin: 0 auto; padding: 16px; }
+
+  /* Encabezado */
+  header {
+    display: flex; align-items: center; justify-content: space-between; gap: 16px;
+    padding: 14px 18px; background: var(--panel); border: 1px solid var(--line); border-radius: 10px;
+  }
+  .brand { display: flex; align-items: center; gap: 14px; }
+  .brand svg { flex: none; }
+  .brand h1 { margin: 0; font-size: 20px; letter-spacing: .5px; }
+  .brand p { margin: 2px 0 0; color: var(--muted); font-size: 13px; }
+  .hdr-right { display: flex; align-items: center; gap: 14px; }
+  .clock { font-family: var(--mono); font-size: 20px; color: var(--muted); }
+  .pill {
+    display: inline-flex; align-items: center; gap: 8px; padding: 5px 12px; border-radius: 999px;
+    font-size: 12px; font-weight: 600; letter-spacing: .6px; text-transform: uppercase;
+    border: 1px solid currentColor;
+  }
+  .pill::before { content: ""; width: 8px; height: 8px; border-radius: 50%; background: currentColor; }
+  .pill.ok { color: var(--ok); background: var(--ok-bg); }
+  .pill.crit { color: var(--crit); background: var(--crit-bg); }
+  .pill.warn { color: var(--warn); background: var(--warn-bg); }
+  .pill.muted { color: var(--muted); }
+
+  /* Indicadores */
+  .kpis { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-top: 12px; }
+  .kpi { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 14px 16px; }
+  .kpi .lbl { font-size: 12px; color: var(--muted); text-transform: uppercase; letter-spacing: .8px; }
+  .kpi .val { font-size: 26px; font-weight: 700; margin-top: 6px; font-variant-numeric: tabular-nums; }
+  .kpi .sub { font-size: 12px; color: var(--muted); margin-top: 2px; }
+  .kpi.ok { border-color: rgba(46,204,113,.5); } .kpi.ok .val { color: var(--ok); }
+  .kpi.crit { border-color: var(--crit); background: var(--crit-bg); } .kpi.crit .val { color: var(--crit); }
+  .kpi.warn { border-color: rgba(245,166,35,.6); } .kpi.warn .val { color: var(--warn); }
+  .kpi.alarm { animation: alarm 1s steps(2, start) infinite; }
+  @keyframes alarm { 50% { background: transparent; } }
+
+  /* Paneles */
+  .panel { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 16px; margin-top: 12px; }
+  .panel h2 {
+    margin: 0 0 12px; font-size: 13px; color: var(--muted); text-transform: uppercase; letter-spacing: 1px;
+    display: flex; align-items: center; justify-content: space-between; gap: 8px;
+  }
+
+  /* Flujo */
+  .flow { display: grid; grid-template-columns: 1fr 48px 1fr 48px 1fr 48px 1fr; align-items: stretch; }
+  .node {
+    background: var(--panel-2); border: 1px solid var(--line); border-radius: 10px; padding: 14px;
+    transition: border-color .3s, box-shadow .3s;
+  }
+  .node .t { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: .8px; }
+  .node .n { font-size: 16px; font-weight: 700; margin-top: 4px; }
+  .node .d { font-size: 13px; color: var(--muted); margin-top: 4px; }
+  .node.active { border-color: var(--info); box-shadow: 0 0 0 3px var(--info-bg); }
+  .node.good { border-color: var(--ok); box-shadow: 0 0 0 3px var(--ok-bg); }
+  .node.warn { border-color: var(--warn); box-shadow: 0 0 0 3px var(--warn-bg); }
+  .node.bad { border-color: var(--crit); box-shadow: 0 0 0 3px var(--crit-bg); }
+  .link { position: relative; align-self: center; height: 2px; background: var(--line); margin: 0 6px; }
+  .link::after {
+    content: ""; position: absolute; right: -2px; top: -4px;
+    border-left: 8px solid var(--line); border-top: 5px solid transparent; border-bottom: 5px solid transparent;
+  }
+  .pkt {
+    position: absolute; top: -5px; left: 0; width: 12px; height: 12px; border-radius: 3px;
+    background: var(--info); opacity: 0;
+  }
+  .pkt.go { animation: travel .45s linear forwards; }
+  .pkt.plain { background: var(--crit); }
+  @keyframes travel { 0% { left: 0; opacity: 1; } 85% { opacity: 1; } 100% { left: calc(100% - 12px); opacity: 0; } }
+
+  /* Tráfico y evento */
+  .two { display: grid; grid-template-columns: 1.15fr 1fr; gap: 12px; }
+  .two > .panel { margin-top: 12px; }
+  .hex {
+    font-family: var(--mono); font-size: 15px; word-break: break-all; line-height: 1.7;
+    background: #070a0e; border: 1px solid var(--line); border-radius: 8px; padding: 14px; min-height: 110px;
+  }
+  .hex .nonce { color: var(--nonce); } .hex .ct { color: var(--ct); } .hex .tag { color: var(--tag); }
+  .hex .flip { background: var(--crit); color: #fff; border-radius: 2px; }
+  .hex.exposed { word-break: normal; color: var(--crit); font-size: 18px; font-weight: 700; }
+  .empty { color: var(--muted); font-family: var(--sans); font-size: 14px; }
+  .legend { display: flex; flex-wrap: wrap; gap: 14px; margin-top: 10px; font-size: 12px; color: var(--muted); }
+  .legend span::before { content: "■ "; }
+  .legend .l-n::before { color: var(--nonce); } .legend .l-c::before { color: var(--ct); } .legend .l-t::before { color: var(--tag); }
+  .note { font-size: 13px; color: var(--muted); margin-top: 10px; }
+
+  .event { border-radius: 8px; padding: 18px; border: 1px solid var(--line); background: var(--panel-2); min-height: 110px; }
+  .event .head { font-size: 13px; font-weight: 700; letter-spacing: 1px; text-transform: uppercase; }
+  .event .msg { font-size: 20px; font-weight: 700; margin: 8px 0 12px; }
+  .event .meta { display: flex; flex-wrap: wrap; gap: 8px; }
+  .event.crit { border-color: var(--crit); background: var(--crit-bg); } .event.crit .head { color: var(--crit); }
+  .event.rej { border-color: var(--warn); background: var(--warn-bg); } .event.rej .head { color: var(--warn); }
+  .event.plain { border-color: var(--crit); background: var(--crit-bg); } .event.plain .head { color: var(--crit); }
+
+  /* Controles y bitácora */
+  .controls { display: grid; gap: 14px; }
+  .ctl-row .lbl { font-size: 12px; color: var(--muted); text-transform: uppercase; letter-spacing: .8px; margin-bottom: 6px; }
+  .btns { display: flex; flex-wrap: wrap; gap: 8px; }
+  button {
+    font: inherit; font-weight: 600; font-size: 14px; padding: 10px 16px; border-radius: 8px; cursor: pointer;
+    background: var(--panel-2); color: var(--text); border: 1px solid var(--line); transition: background .15s, border-color .15s;
+  }
+  button:hover { border-color: var(--muted); }
+  button:focus-visible { outline: 2px solid var(--info); outline-offset: 2px; }
+  button.primary { background: var(--ok); color: #06140b; border-color: var(--ok); }
+  button.danger { color: var(--crit); border-color: rgba(255,77,79,.5); }
+  button.sel { background: var(--info-bg); border-color: var(--info); color: var(--info); }
+  button.sel.plain { background: var(--crit-bg); border-color: var(--crit); color: var(--crit); }
+  .log { font-family: var(--mono); font-size: 13px; max-height: 250px; overflow-y: auto; margin: 0; padding: 0; list-style: none; }
+  .log li { padding: 6px 0; border-bottom: 1px solid var(--line); display: grid; grid-template-columns: 72px 104px 1fr; gap: 8px; }
+  .log .ts { color: var(--muted); }
+  .log .k-ok { color: var(--ok); } .log .k-crit { color: var(--crit); } .log .k-warn { color: var(--warn); } .log .k-info { color: var(--info); }
+
+  footer { margin: 14px 0 4px; color: var(--muted); font-size: 12px; text-align: center; }
+
+  @media (max-width: 1000px) {
+    .kpis { grid-template-columns: repeat(2, 1fr); }
+    .two { grid-template-columns: 1fr; }
+    .flow { grid-template-columns: 1fr; gap: 0; }
+    .link { width: 2px; height: 22px; justify-self: center; margin: 4px 0; }
+    .link::after { right: -4px; top: auto; bottom: -2px; border-left: 5px solid transparent; border-right: 5px solid transparent; border-top: 8px solid var(--line); border-bottom: 0; }
+    .pkt { display: none; }
+  }
+  @media (max-width: 600px) {
+    header { flex-direction: column; align-items: flex-start; }
+    .kpis { grid-template-columns: 1fr; }
+    .log li { grid-template-columns: 64px 1fr; } .log li .d { grid-column: 1 / -1; }
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header>
+    <div class="brand">
+      <svg width="40" height="40" viewBox="0 0 40 40" aria-hidden="true">
+        <path d="M20 3 35 11.5v17L20 37 5 28.5v-17z" fill="none" stroke="#3aa0ff" stroke-width="2"/>
+        <path d="M14 20.5l4 4 8-9" fill="none" stroke="#2ecc71" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
+      </svg>
+      <div>
+        <h1>ER-07 · Estación de Regulación</h1>
+        <p>Panel de supervisión · Nodo de campo N-01 · Sala de válvulas</p>
+      </div>
+    </div>
+    <div class="hdr-right">
+      <a href="/paso-a-paso" target="_blank" class="pill muted" style="text-decoration:none">Paso a paso ↗</a>
+      <span id="link" class="pill muted">Conectando</span>
+      <span id="clock" class="clock">--:--:--</span>
+    </div>
+  </header>
+
+  <section class="kpis">
+    <div id="kPer" class="kpi"><div class="lbl">Perímetro</div><div class="val" id="vPer">Desarmado</div><div class="sub" id="sPer">Sensor Sharp IR inactivo</div></div>
+    <div id="kEnl" class="kpi ok"><div class="lbl">Enlace de campo</div><div class="val" id="vEnl">ASCON-128</div><div class="sub" id="sEnl">Cifrado autenticado (AEAD)</div></div>
+    <div class="kpi"><div class="lbl">Mensajes verificados</div><div class="val" id="vOk">0</div><div class="sub">Tag válido, descifrados</div></div>
+    <div id="kRej" class="kpi"><div class="lbl">Rechazados / en claro</div><div class="val" id="vRej">0 / 0</div><div class="sub">Tag inválido / texto plano</div></div>
+  </section>
+
+  <section class="panel">
+    <h2>Flujo del mensaje</h2>
+    <div class="flow">
+      <div class="node" id="n1"><div class="t">Campo</div><div class="n">Sensor Sharp IR</div><div class="d">Detecta movimiento en el perímetro</div></div>
+      <div class="link"><span class="pkt" id="p1"></span></div>
+      <div class="node" id="n2"><div class="t">Nodo N-01</div><div class="n">ESP8266</div><div class="d" id="d2">Cifra con Ascon-128</div></div>
+      <div class="link"><span class="pkt" id="p2"></span></div>
+      <div class="node" id="n3"><div class="t">Red de campo</div><div class="n">Broker MQTT</div><div class="d">Canal compartido, observable</div></div>
+      <div class="link"><span class="pkt" id="p3"></span></div>
+      <div class="node" id="n4"><div class="t">Centro de control</div><div class="n">Servidor SCADA</div><div class="d" id="d4">Verifica el tag y descifra</div></div>
+    </div>
+  </section>
+
+  <div class="two">
+    <section class="panel">
+      <h2>Tráfico interceptado en la red <span class="pill muted" id="tView">Vista del atacante</span></h2>
+      <div class="hex" id="hex"><span class="empty">Sin tráfico. Arme el perímetro y dispare el sensor.</span></div>
+      <div class="legend" id="legend"><span class="l-n">Nonce · 16 B</span><span class="l-c">Ciphertext</span><span class="l-t">Tag · 16 B</span></div>
+      <div class="note" id="hexNote">Sin la clave, el contenido es indistinguible de datos aleatorios.</div>
+    </section>
+
+    <section class="panel">
+      <h2>Último evento en el centro de control</h2>
+      <div class="event" id="ev">
+        <div class="head">Sin eventos</div>
+        <div class="msg" style="color:var(--muted);font-weight:400;font-size:15px">A la espera de alertas del nodo de campo.</div>
+      </div>
+    </section>
+  </div>
+
+  <div class="two">
+    <section class="panel">
+      <h2>Controles</h2>
+      <div class="controls">
+        <div class="ctl-row">
+          <div class="lbl">Perímetro</div>
+          <div class="btns">
+            <button class="primary" onclick="accion('/turn_on_led')">Armar perímetro</button>
+            <button onclick="accion('/turn_off_led')">Desarmar</button>
+          </div>
+        </div>
+        <div class="ctl-row">
+          <div class="lbl">Modo del enlace</div>
+          <div class="btns">
+            <button id="bCif" class="sel" onclick="accion('/modo/cifrado')">Cifrado ASCON</button>
+            <button id="bCla" onclick="accion('/modo/claro')">Texto plano</button>
+          </div>
+        </div>
+        <div class="ctl-row">
+          <div class="lbl">Demo de integridad</div>
+          <div class="btns">
+            <button class="danger" onclick="accion('/manipular')">Inyectar mensaje alterado</button>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="panel">
+      <h2>Bitácora</h2>
+      <ul class="log" id="log"></ul>
+    </section>
+  </div>
+
+  <footer>Prueba de concepto en laboratorio · Ascon-128 · Clave fija de demostración</footer>
+</div>
+
+<script src="{{ url_for('static', filename='socket.io.min.js') }}"></script>
+<script>
+  const $ = (id) => document.getElementById(id);
+  let st = { armado: false, modo: "cifrado", verificados: 0, rechazados: 0, en_claro: 0 };
+  let intrusion = false;
+
+  // Reloj
+  setInterval(() => { $("clock").textContent = new Date().toLocaleTimeString("es-AR", { hour12: false }); }, 1000);
+
+  function log(tipo, clase, texto) {
+    const li = document.createElement("li");
+    const ts = new Date().toLocaleTimeString("es-AR", { hour12: false });
+    li.innerHTML = `<span class="ts">${ts}</span><span class="${clase}">${tipo}</span><span class="d"></span>`;
+    li.querySelector(".d").textContent = texto;
+    $("log").prepend(li);
+    while ($("log").children.length > 60) $("log").lastChild.remove();
+  }
+
+  function renderEstado() {
+    const per = $("kPer");
+    per.className = "kpi";
+    if (!st.armado) { $("vPer").textContent = "Desarmado"; $("sPer").textContent = "Sensor Sharp IR inactivo"; intrusion = false; }
+    else if (intrusion) { per.classList.add("crit", "alarm"); $("vPer").textContent = "Intrusión"; $("sPer").textContent = "Movimiento detectado en sala de válvulas"; }
+    else { per.classList.add("ok"); $("vPer").textContent = "Armado"; $("sPer").textContent = "Vigilando sala de válvulas"; }
+
+    const cif = st.modo === "cifrado";
+    $("kEnl").className = "kpi " + (cif ? "ok" : "crit");
+    $("vEnl").textContent = cif ? "ASCON-128" : "Texto plano";
+    $("sEnl").textContent = cif ? "Cifrado autenticado (AEAD)" : "Sin confidencialidad ni integridad";
+    $("bCif").className = cif ? "sel" : "";
+    $("bCla").className = cif ? "" : "sel plain";
+    $("d2").textContent = cif ? "Cifra con Ascon-128" : "Envía en texto plano";
+    $("d4").textContent = cif ? "Verifica el tag y descifra" : "Recibe sin verificar";
+
+    $("vOk").textContent = st.verificados;
+    $("vRej").textContent = `${st.rechazados} / ${st.en_claro}`;
+    $("kRej").className = "kpi" + (st.rechazados || st.en_claro ? " warn" : "");
+  }
+
+  function animar(plano, fallo) {
+    const nodos = ["n1", "n2", "n3", "n4"].map($);
+    nodos.forEach(n => n.className = "node");
+    ["p1", "p2", "p3"].forEach((id, i) => {
+      const p = $(id);
+      p.className = "pkt" + (plano ? " plain" : "");
+      setTimeout(() => { p.classList.add("go"); nodos[i].classList.add("active"); }, i * 450);
+    });
+    setTimeout(() => {
+      nodos.forEach(n => n.classList.remove("active"));
+      if (fallo) { nodos[3].classList.add("bad"); nodos[2].classList.add("bad"); }
+      else if (plano) { nodos[2].classList.add("bad"); nodos[3].classList.add("warn"); }
+      else nodos.forEach(n => n.classList.add("good"));
+    }, 1400);
+  }
+
+  function esc(s) { const d = document.createElement("div"); d.textContent = s; return d.innerHTML; }
+
+  function renderTrafico(ev) {
+    const hex = $("hex");
+    hex.className = "hex";
+    if (ev.tipo === "claro") {
+      hex.classList.add("exposed");
+      hex.textContent = ev.texto;
+      $("legend").style.display = "none";
+      $("tView").className = "pill crit"; $("tView").textContent = "Contenido expuesto";
+      $("hexNote").textContent = "Cualquier equipo en la red lee la alerta y puede falsificarla.";
+      return;
+    }
+    $("legend").style.display = "";
+    $("tView").className = "pill muted"; $("tView").textContent = "Vista del atacante";
+    if (!ev.nonce) { hex.textContent = ev.hex; return; }
+    let ct = esc(ev.ct);
+    if (ev.tipo === "rechazado") {
+      // resalta el nibble alterado por la demo de manipulación (posición 4 del ciphertext)
+      ct = esc(ev.ct.slice(0, 4)) + `<span class="flip">${esc(ev.ct[4] || "")}</span>` + esc(ev.ct.slice(5));
+    }
+    hex.innerHTML = `<span class="nonce">${esc(ev.nonce)}</span><span class="ct">${ct}</span><span class="tag">${esc(ev.tag)}</span>`;
+    $("hexNote").textContent = ev.tipo === "rechazado"
+      ? "Un solo bit alterado en el ciphertext invalida el tag completo."
+      : "Sin la clave, el contenido es indistinguible de datos aleatorios.";
+  }
+
+  function renderEvento(ev) {
+    const box = $("ev");
+    if (ev.tipo === "cifrado") {
+      box.className = "event crit";
+      box.innerHTML = `<div class="head">⚠ Intrusión detectada · alerta autenticada</div>
+        <div class="msg">${esc(ev.texto)}</div>
+        <div class="meta"><span class="pill ok">Tag válido</span><span class="pill muted">Descifrado en ${ev.ms} ms</span><span class="pill muted">${esc(ev.ts)}</span></div>`;
+    } else if (ev.tipo === "rechazado") {
+      box.className = "event rej";
+      box.innerHTML = `<div class="head">Mensaje rechazado</div>
+        <div class="msg">${esc(ev.motivo)}</div>
+        <div class="meta"><span class="pill warn">Integridad comprometida</span><span class="pill muted">${esc(ev.ts)}</span></div>`;
+    } else if (ev.tipo === "claro") {
+      box.className = "event plain";
+      box.innerHTML = `<div class="head">⚠ Intrusión detectada · sin autenticar</div>
+        <div class="msg">${esc(ev.texto)}</div>
+        <div class="meta"><span class="pill crit">Texto plano</span><span class="pill muted">Origen no verificable</span><span class="pill muted">${esc(ev.ts)}</span></div>`;
+    }
+  }
+
+  function procesar(ev, animado = true) {
+    if (ev.tipo !== "rechazado" && st.armado) intrusion = true;
+    renderTrafico(ev);
+    renderEvento(ev);
+    if (animado) animar(ev.tipo === "claro", ev.tipo === "rechazado");
+    renderEstado();
+  }
+
+  async function accion(url) {
+    try {
+      const r = await fetch(url, { method: "POST" });
+      const j = await r.json();
+      if (j.status !== "ok") log("ERROR", "k-warn", j.motivo || "acción rechazada");
+      else if (url === "/turn_on_led") { intrusion = false; log("ARMADO", "k-ok", "Perímetro armado, sensor activo"); }
+      else if (url === "/turn_off_led") { log("DESARMADO", "k-info", "Perímetro desarmado"); limpiar(); }
+      else if (url.startsWith("/modo/")) log("MODO", "k-info", url.endsWith("claro") ? "Enlace en texto plano" : "Enlace cifrado con Ascon-128");
+      else if (url === "/manipular") log("ATAQUE", "k-warn", "Inyectado mensaje con 1 bit alterado");
+    } catch (e) { log("ERROR", "k-warn", "Sin respuesta del servidor"); }
+  }
+
+  function limpiar() {
+    $("hex").className = "hex";
+    $("hex").innerHTML = '<span class="empty">Sin tráfico. Arme el perímetro y dispare el sensor.</span>';
+    $("legend").style.display = ""; $("tView").className = "pill muted"; $("tView").textContent = "Vista del atacante";
+    $("ev").className = "event";
+    $("ev").innerHTML = '<div class="head">Sin eventos</div><div class="msg" style="color:var(--muted);font-weight:400;font-size:15px">A la espera de alertas del nodo de campo.</div>';
+    ["n1","n2","n3","n4"].forEach(id => $(id).className = "node");
+  }
+
+  // Estado inicial (por si la página se abre después de un evento)
+  fetch("/estado").then(r => r.json()).then(s => { st = s; renderEstado(); if (s.ultimo) procesar(s.ultimo, false); }).catch(() => {});
+
+  const socket = io();
+  socket.on("connect", () => { $("link").className = "pill ok"; $("link").textContent = "En línea"; });
+  socket.on("disconnect", () => { $("link").className = "pill crit"; $("link").textContent = "Sin enlace"; });
+  socket.on("estado", (s) => { st = { ...st, ...s }; renderEstado(); });
+  socket.on("evento", (ev) => {
+    procesar(ev);
+    if (ev.tipo === "cifrado") log("ALERTA", "k-crit", `${ev.texto} · tag OK`);
+    else if (ev.tipo === "rechazado") log("RECHAZADO", "k-warn", ev.motivo);
+    else log("EN CLARO", "k-crit", ev.texto);
+  });
+</script>
+</body>
+</html>

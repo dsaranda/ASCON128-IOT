@@ -1,0 +1,246 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>HMI · ER-07</title>
+<!--
+  Pantalla HMI ficticia de la "Estación de Regulación ER-07", pensada para la pantalla
+  táctil de 5" (800x480) conectada a la Raspberry Pi, en modo kiosco.
+  Los valores de proceso (presión, caudal, temperatura) son SIMULADOS.
+  El estado del perímetro y las alarmas son REALES: escucha los mismos eventos que el panel SCADA.
+-->
+<style>
+  :root {
+    --bg: #0b0f14; --panel: #121821; --line: #243040; --text: #e6edf3; --muted: #8b98a8;
+    --ok: #2ecc71; --warn: #f5a623; --crit: #ff4d4f; --info: #3aa0ff;
+    --hp: #f5a623; --mp: #3aa0ff;
+    --mono: ui-monospace, "SFMono-Regular", Menlo, Consolas, "Liberation Mono", monospace;
+    --sans: system-ui, -apple-system, "Segoe UI", Roboto, Ubuntu, sans-serif;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; background: var(--bg); color: var(--text); font-family: var(--sans); overflow: hidden; user-select: none; cursor: none; }
+  .hmi { width: 100vw; height: 100vh; display: grid; grid-template-rows: 38px 1fr 150px; }
+
+  /* Barra superior */
+  .top { display: flex; align-items: center; justify-content: space-between; padding: 0 12px; background: var(--panel); border-bottom: 1px solid var(--line); }
+  .top b { font-size: 15px; letter-spacing: .4px; }
+  .top span.sub { color: var(--muted); font-size: 12px; margin-left: 8px; }
+  .st { font-size: 12px; font-weight: 800; letter-spacing: 1px; padding: 3px 10px; border-radius: 4px; border: 1px solid currentColor; }
+  .st.ok { color: var(--ok); } .st.warn { color: var(--warn); } .st.crit { color: #fff; background: var(--crit); border-color: var(--crit); }
+  .clock { font-family: var(--mono); font-size: 15px; color: var(--muted); }
+  .right { display: flex; gap: 10px; align-items: center; }
+
+  /* Sinóptico */
+  svg { width: 100%; height: 100%; display: block; }
+  .pipe { fill: none; stroke-width: 10; stroke-linecap: round; }
+  .flow { fill: none; stroke: rgba(255,255,255,.55); stroke-width: 3; stroke-dasharray: 6 16; animation: flow 1.1s linear infinite; }
+  .flow.off { display: none; }
+  @keyframes flow { to { stroke-dashoffset: -22; } }
+  .tag { font: 700 11px var(--mono); fill: var(--muted); }
+  .val { font: 700 15px var(--mono); fill: var(--text); }
+  .unit { font: 11px var(--mono); fill: var(--muted); }
+  .lbl { font: 700 10px var(--sans); fill: var(--muted); letter-spacing: 1px; }
+  .room { fill: rgba(58,160,255,.05); stroke: #3a4a5e; stroke-width: 1.5; stroke-dasharray: 6 5; }
+  .room.alarm { fill: rgba(255,77,79,.22); stroke: var(--crit); stroke-dasharray: none; animation: blink 1s steps(2, start) infinite; }
+  .room.armed { stroke: var(--ok); }
+  .room.alarm.ack { animation: none; }
+  @keyframes blink { 50% { fill: rgba(255,77,79,.05); } }
+
+  /* Tarjetas inferiores */
+  .bottom { display: grid; grid-template-columns: 1.15fr 1fr 1.25fr; gap: 8px; padding: 8px; border-top: 1px solid var(--line); }
+  .card { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 9px 11px; display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+  .card .t { font-size: 10px; color: var(--muted); letter-spacing: 1.2px; text-transform: uppercase; font-weight: 700; }
+  .card .big { font-size: 22px; font-weight: 800; line-height: 1.1; }
+  .card .s { font-size: 12px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .card.ok { border-color: rgba(46,204,113,.6); } .card.ok .big { color: var(--ok); }
+  .card.crit { border-color: var(--crit); background: rgba(255,77,79,.14); } .card.crit .big { color: var(--crit); }
+  .card.warn { border-color: rgba(245,166,35,.7); } .card.warn .big { color: var(--warn); }
+  .card.flash { animation: cflash 1s steps(2, start) infinite; }
+  @keyframes cflash { 50% { background: var(--panel); } }
+  .ack { margin-top: auto; font: 800 13px var(--sans); letter-spacing: 1px; padding: 8px; border-radius: 6px; border: 1px solid var(--crit); background: var(--crit); color: #fff; cursor: none; }
+  .ack[hidden] { display: none; }
+  .row { display: flex; justify-content: space-between; font-family: var(--mono); font-size: 12px; color: var(--muted); }
+  .row b { color: var(--text); }
+</style>
+</head>
+<body>
+<div class="hmi">
+  <div class="top">
+    <div><b>ER-07 · Estación de Regulación</b><span class="sub">HMI local · Nodo N-01</span></div>
+    <div class="right"><span id="st" class="st ok">NORMAL</span><span id="clock" class="clock">--:--:--</span></div>
+  </div>
+
+  <!-- Sinóptico: ramal de alta presión → filtro → válvula → regulador → válvula → medidor → red de media presión -->
+  <svg viewBox="0 0 800 292" aria-label="Sinóptico ficticio de la estación de regulación">
+    <!-- Sala de válvulas (zona vigilada por el sensor del nodo N-01) -->
+    <rect id="room" class="room" x="205" y="52" width="330" height="222" rx="8"/>
+    <text class="lbl" x="215" y="68">SALA DE VÁLVULAS · N-01</text>
+
+    <!-- Línea principal: alta presión (naranja) hasta el regulador, media presión (azul) después -->
+    <path class="pipe" stroke="var(--hp)" d="M16 150 H380"/>
+    <path class="pipe" stroke="var(--mp)" d="M380 150 H770"/>
+    <path id="f1" class="flow" d="M16 150 H770"/>
+    <!-- By-pass (cerrado) -->
+    <path class="pipe" stroke="#2c3a4a" d="M232 150 V238 H508 V150"/>
+
+    <!-- Filtro F-101 -->
+    <rect x="110" y="132" width="44" height="36" rx="4" fill="#18202b" stroke="#5d6b7c" stroke-width="2"/>
+    <path d="M118 140 L146 160 M118 160 L146 140" stroke="#5d6b7c" stroke-width="2"/>
+    <text class="tag" x="112" y="186">F-101</text>
+
+    <!-- Válvula V-101 (abierta) -->
+    <path d="M250 136 L278 164 L278 136 L250 164 Z" fill="var(--ok)" stroke="#0b0f14" stroke-width="1.5"/>
+    <text class="tag" x="246" y="186">V-101</text>
+
+    <!-- Regulador PRV-201 -->
+    <circle cx="380" cy="150" r="20" fill="#18202b" stroke="#c9d4df" stroke-width="2"/>
+    <path d="M368 158 L392 142" stroke="#c9d4df" stroke-width="2"/><path d="M386 140 L393 141 L391 148" fill="none" stroke="#c9d4df" stroke-width="2"/>
+    <text class="tag" x="360" y="186">PRV-201</text>
+
+    <!-- Válvula V-102 (abierta) -->
+    <path d="M462 136 L490 164 L490 136 L462 164 Z" fill="var(--ok)" stroke="#0b0f14" stroke-width="1.5"/>
+    <text class="tag" x="458" y="186">V-102</text>
+
+    <!-- Válvula by-pass V-103 (cerrada) -->
+    <path d="M356 224 L384 252 L384 224 L356 252 Z" fill="#3a4a5e" stroke="#0b0f14" stroke-width="1.5"/>
+    <text class="tag" x="342" y="270">V-103 CERRADA</text>
+
+    <!-- Medidor FT-301 -->
+    <circle cx="610" cy="150" r="18" fill="#18202b" stroke="var(--mp)" stroke-width="2"/>
+    <text class="tag" x="601" y="154" style="fill:var(--mp)">FT</text>
+    <text class="tag" x="592" y="186">FT-301</text>
+
+    <!-- Salida -->
+    <path d="M770 138 L790 150 L770 162 Z" fill="var(--mp)"/>
+    <text class="lbl" x="690" y="186">A RED MP</text>
+    <text class="lbl" x="18" y="186">RAMAL AP</text>
+
+    <!-- Instrumentos (valores simulados) -->
+    <g>
+      <line x1="80" y1="110" x2="80" y2="145" stroke="#5d6b7c" stroke-width="1.5"/>
+      <rect x="40" y="62" width="112" height="48" rx="6" fill="#121821" stroke="#243040"/>
+      <text class="tag" x="48" y="78">PT-101 ENTRADA</text>
+      <text class="val" x="48" y="100" id="pin">19.2</text><text class="unit" x="100" y="100">bar</text>
+    </g>
+    <g>
+      <line x1="430" y1="110" x2="430" y2="145" stroke="#5d6b7c" stroke-width="1.5"/>
+      <rect x="392" y="62" width="112" height="48" rx="6" fill="#121821" stroke="#243040"/>
+      <text class="tag" x="400" y="78">PT-201 SALIDA</text>
+      <text class="val" x="400" y="100" id="pout">4.02</text><text class="unit" x="452" y="100">bar</text>
+    </g>
+    <g>
+      <line x1="610" y1="110" x2="610" y2="132" stroke="#5d6b7c" stroke-width="1.5"/>
+      <rect x="560" y="62" width="122" height="48" rx="6" fill="#121821" stroke="#243040"/>
+      <text class="tag" x="568" y="78">FT-301 CAUDAL</text>
+      <text class="val" x="568" y="100" id="q">1240</text><text class="unit" x="618" y="100">m³/h</text>
+    </g>
+    <g>
+      <rect x="690" y="62" width="96" height="48" rx="6" fill="#121821" stroke="#243040"/>
+      <text class="tag" x="698" y="78">TT-101</text>
+      <text class="val" x="698" y="100" id="temp">17.8</text><text class="unit" x="742" y="100">°C</text>
+    </g>
+  </svg>
+
+  <div class="bottom">
+    <div class="card" id="cPer">
+      <span class="t">Perímetro · sala de válvulas</span>
+      <span class="big" id="vPer">DESARMADO</span>
+      <span class="s" id="sPer">Sensor Sharp IR inactivo</span>
+    </div>
+    <div class="card ok" id="cEnl">
+      <span class="t">Enlace nodo N-01</span>
+      <span class="big" id="vEnl">ASCON-128</span>
+      <div class="row"><span>Verificados <b id="nOk">0</b></span><span>Rechazados <b id="nRej">0</b></span></div>
+    </div>
+    <div class="card" id="cAlm">
+      <span class="t">Alarmas</span>
+      <span class="s" id="alm1" style="color:var(--text); font-size:13px">Sin alarmas activas</span>
+      <span class="s" id="alm2"></span>
+      <button class="ack" id="ack" hidden>RECONOCER</button>
+    </div>
+  </div>
+</div>
+
+<script src="{{ url_for('static', filename='socket.io.min.js') }}"></script>
+<script>
+const $ = (id) => document.getElementById(id);
+let st = { armado: false, modo: "cifrado", verificados: 0, rechazados: 0 };
+let alarma = null;        // null | "intrusion" | "sinauth" | "integridad"
+let reconocida = false;
+const hist = [];
+
+// Reloj
+setInterval(() => { $("clock").textContent = new Date().toLocaleTimeString("es-AR", { hour12: false }); }, 1000);
+
+// Valores de proceso SIMULADOS: oscilan suavemente alrededor de un punto de operación
+const base = { pin: 19.2, pout: 4.02, q: 1240, temp: 17.8 };
+function jitter(v, amp, dec) { return (v + (Math.random() - .5) * amp).toFixed(dec); }
+setInterval(() => {
+  $("pin").textContent = jitter(base.pin, .3, 1);
+  $("pout").textContent = jitter(base.pout, .04, 2);
+  $("q").textContent = Math.round(jitter(base.q, 30, 0));
+  $("temp").textContent = jitter(base.temp, .2, 1);
+}, 1500);
+
+function registrar(txt) {
+  const h = new Date().toLocaleTimeString("es-AR", { hour12: false });
+  hist.unshift(`${h}  ${txt}`); hist.length = Math.min(hist.length, 2);
+  $("alm1").textContent = hist[0] || "Sin alarmas activas";
+  $("alm2").textContent = hist[1] || "";
+}
+
+function render() {
+  // Perímetro y sala
+  const room = $("room"), cPer = $("cPer");
+  room.setAttribute("class", "room" + (alarma === "intrusion" || alarma === "sinauth" ? (reconocida ? " alarm ack" : " alarm") : st.armado ? " armed" : ""));
+  cPer.className = "card";
+  if (!st.armado) { $("vPer").textContent = "DESARMADO"; $("sPer").textContent = "Sensor Sharp IR inactivo"; }
+  else if (alarma === "intrusion" || alarma === "sinauth") {
+    cPer.className = "card crit" + (reconocida ? "" : " flash");
+    $("vPer").textContent = "INTRUSIÓN";
+    $("sPer").textContent = alarma === "intrusion" ? "Alerta autenticada · tag válido" : "Alerta en texto plano · sin autenticar";
+  } else { cPer.className = "card ok"; $("vPer").textContent = "VIGILANDO"; $("sPer").textContent = "Perímetro armado"; }
+
+  // Enlace
+  const cif = st.modo === "cifrado";
+  $("cEnl").className = "card " + (cif ? "ok" : "crit");
+  $("vEnl").textContent = cif ? "ASCON-128" : "TEXTO PLANO";
+  $("nOk").textContent = st.verificados; $("nRej").textContent = st.rechazados;
+
+  // Alarmas y estado general
+  const activa = alarma && !reconocida;
+  $("cAlm").className = "card" + (alarma === "integridad" ? " warn" : alarma ? " crit" : "");
+  $("ack").hidden = !activa;
+  const s = $("st");
+  if (alarma === "intrusion" || alarma === "sinauth") { s.className = "st crit"; s.textContent = reconocida ? "ALARMA RECONOCIDA" : "ALARMA"; }
+  else if (alarma === "integridad") { s.className = "st warn"; s.textContent = "ADVERTENCIA"; }
+  else if (!cif) { s.className = "st warn"; s.textContent = "ENLACE SIN CIFRAR"; }
+  else { s.className = "st ok"; s.textContent = "NORMAL"; }
+}
+
+$("ack").onclick = () => { reconocida = true; registrar("Alarma reconocida por operador"); render(); };
+
+function evento(ev) {
+  if (ev.tipo === "cifrado") { alarma = "intrusion"; reconocida = false; registrar("INTRUSIÓN sala de válvulas · tag OK"); }
+  else if (ev.tipo === "claro") { alarma = "sinauth"; reconocida = false; registrar("INTRUSIÓN · alerta sin cifrar"); }
+  else if (ev.tipo === "rechazado") { if (!alarma) { alarma = "integridad"; reconocida = false; } registrar("Mensaje rechazado · integridad"); }
+  render();
+}
+
+function estado(s) {
+  const estabaArmado = st.armado;
+  st = { ...st, ...s };
+  if (st.armado !== estabaArmado) { alarma = null; reconocida = false; registrar(st.armado ? "Perímetro armado" : "Perímetro desarmado"); }
+  render();
+}
+
+fetch("/estado").then(r => r.json()).then(s => { st = { ...st, ...s }; if (s.ultimo) evento(s.ultimo); else render(); }).catch(render);
+const socket = io();
+socket.on("estado", estado);
+socket.on("evento", evento);
+socket.on("disconnect", () => { $("st").className = "st warn"; $("st").textContent = "SIN COMUNICACIÓN"; });
+socket.on("connect", render);
+</script>
+</body>
+</html>
